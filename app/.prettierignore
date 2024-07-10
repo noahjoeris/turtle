@@ -1,0 +1,7 @@
+node_modules
+.next
+LICENSE
+docs
+pnpm-lock.yaml
+*.md
+.env*
