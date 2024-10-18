@@ -1,5 +1,10 @@
+import { SnowbridgeStatus } from '@/models/snowbridge'
+import { Direction } from '@/services/transfer'
 import { Environment } from '@/store/environmentStore'
-import * as Snowbridge from '@snowbridge/api'
+import { shouldUseTestnet } from '@/utils/env'
+import { Context, contextFactory, environment, status } from '@snowbridge/api'
+
+const ALCHEMY_API_KEY = process.env.NEXT_PUBLIC_ALCHEMY_KEY || ''
 
 /**
  * Given an app Environment, return the adequate Snowbridge Api Environment scheme.
@@ -8,9 +13,16 @@ import * as Snowbridge from '@snowbridge/api'
  * @param env - The environment in which the app is operating on
  * @returns The adequate SnowbridgeEnvironment for the given input
  */
-export function getEnvironment(env: Environment): Snowbridge.environment.SnowbridgeEnvironment {
+export function getEnvironment(env: Environment): environment.SnowbridgeEnvironment {
   const network = toSnowbridgeNetwork(env)
-  const x = Snowbridge.environment.SNOWBRIDGE_ENV[network]
+  const x = environment.SNOWBRIDGE_ENV[network]
+
+  // apply custom api endpoints
+  if (env === Environment.Mainnet) {
+    x.config.ASSET_HUB_URL = process.env.NEXT_PUBLIC_POLKADOT_ASSET_HUB_API_URL || ''
+    x.config.BRIDGE_HUB_URL = process.env.NEXT_PUBLIC_POLKADOT_BRIDGE_HUB_API_URL || ''
+    x.config.RELAY_CHAIN_URL = process.env.NEXT_PUBLIC_POLKADOT_RELAY_CHAIN_API_URL || ''
+  }
 
   if (x === undefined) {
     throw Error(`Unknown environment`)
@@ -19,14 +31,12 @@ export function getEnvironment(env: Environment): Snowbridge.environment.Snowbri
   return x
 }
 
-export async function getContext(
-  environment: Snowbridge.environment.SnowbridgeEnvironment,
-): Promise<Snowbridge.Context> {
+export async function getContext(environment: environment.SnowbridgeEnvironment): Promise<Context> {
   const { config } = environment
 
-  return await Snowbridge.contextFactory({
+  return await contextFactory({
     ethereum: {
-      execution_url: config.ETHEREUM_API('3Abd1KfeBZgvuM0YSAkoIwGRCC26z5lw'),
+      execution_url: config.ETHEREUM_API(ALCHEMY_API_KEY),
       beacon_url: config.BEACON_HTTP_API,
     },
     polkadot: {
@@ -57,4 +67,58 @@ export function toSnowbridgeNetwork(env: Environment): string {
     case Environment.Testnet:
       return 'rococo_sepolia'
   }
+}
+
+export async function getSnowBridgeContext(
+  environment = shouldUseTestnet ? Environment.Testnet : Environment.Mainnet,
+): Promise<Context> {
+  const snowbridgeEnv = getEnvironment(environment)
+  return await getContext(snowbridgeEnv)
+}
+
+export async function getSnowBridgeEtimatedTransferDuration(
+  snowbridgCtx: Context,
+): Promise<SnowbridgeStatus> {
+  const bridgeStatus = await status.bridgeStatusInfo(snowbridgCtx)
+  return {
+    ethBridgeStatus: bridgeStatus.toEthereum.latencySeconds,
+    polkadotBridgeStatus: bridgeStatus.toPolkadot.latencySeconds,
+  }
+}
+
+/**
+ * Calculates the progress value of snowbridge transfer based on its status,
+ * the transfer date, and the transfer direction.
+ *
+ * @param bridgeStatus - Snowbridge's last status. This object contains the bridge status
+ * in minutes for both Polkadot and Ethereum directions. If null, the function returns 0.
+ * @param transferDate - The date and time when the transfer was initiated.
+ * @param transferDirection - The direction of the transfer, either ToPolkadot or ToEthereum direction.
+ * @returns The progress value of the bridge transfer process, ranging between 5% and 90%.
+ */
+export const estimateBridgeProgress = (
+  transferDate: Date,
+  transferDirection: Direction,
+  bridgeStatus?: SnowbridgeStatus,
+) => {
+  if (!bridgeStatus) return 0
+
+  const bridgeTimestamp = // seconds converted in miliseconds
+    transferDirection === Direction.ToPolkadot
+      ? bridgeStatus?.polkadotBridgeStatus * 1000
+      : bridgeStatus.ethBridgeStatus * 1000
+
+  const transferTimestamp = new Date(transferDate).getTime()
+  const targetTimestamp = bridgeTimestamp + transferTimestamp
+  const currentTimestamp = new Date().getTime()
+
+  if (currentTimestamp > targetTimestamp) return 90
+
+  // time already spent between transfer start & current time
+  const diffTimeSinceTransfer = currentTimestamp - transferTimestamp
+  const progress = (diffTimeSinceTransfer / bridgeTimestamp) * 100
+
+  // To avoid displaying full progress bar, keep a 10% buffer.
+  // It returns 90% max and min 5% (to improve UI)
+  return Math.min(progress < 5 ? 5 : progress, 90)
 }

@@ -1,6 +1,7 @@
 'use client'
-
+// eslint-disable-next-line import/no-namespace
 import * as React from 'react'
+// eslint-disable-next-line import/no-namespace
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
 
@@ -76,7 +77,7 @@ const DialogTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Title
     ref={ref}
-    className={cn('text-lg font-semibold leading-none tracking-tight', className)}
+    className={cn('xl-letter-spacing text-lg font-semibold leading-none', className)}
     {...props}
   />
 ))

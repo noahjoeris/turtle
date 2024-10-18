@@ -1,21 +1,27 @@
 'use client'
 import { REGISTRY } from '@/config/registry'
 import useTransferForm from '@/hooks/useTransferForm'
-import { truncateAddress } from '@/utils/address'
-import Link from 'next/link'
+import { AnimatePresence, motion } from 'framer-motion'
 import { FC } from 'react'
 import { Controller } from 'react-hook-form'
 import Button from './Button'
 import ChainSelect from './ChainSelect'
+import Credits from './Credits'
 import FeesPreview from './FeesPreview'
 import SubstrateWalletModal from './SubstrateWalletModal'
 import { AlertIcon } from './svg/AlertIcon'
 import Switch from './Switch'
 import TokenAmountSelect from './TokenAmountSelect'
 import WalletButton from './WalletButton'
-import { ethers } from 'ethers'
+import TokenSpendApproval from './TokenSpendApproval'
+import useSnowbridgeContext from '@/hooks/useSnowbridgeContext'
+import { Signer } from 'ethers'
+import useErc20Allowance from '@/hooks/useErc20Allowance'
+import { resolveDirection } from '@/services/transfer'
+import { getDurationEstimate } from '@/utils/transfer'
 
 const Transfer: FC = () => {
+  const { snowbridgeContext } = useSnowbridgeContext()
   const {
     control,
     errors,
@@ -33,15 +39,50 @@ const Transfer: FC = () => {
     sourceWallet,
     destinationWallet,
     fees,
+    loadingFees,
     transferStatus,
     environment,
+    tokenAmountError,
+    manualRecipientError,
     isBalanceAvailable,
+    loadingBalance,
+    balanceData,
   } = useTransferForm()
+  const {
+    allowance: erc20SpendAllowance,
+    approveAllowance,
+    approving: isApprovingErc20Spend,
+  } = useErc20Allowance({
+    context: snowbridgeContext,
+    network: sourceChain?.network,
+    tokenAmount,
+    owner: sourceWallet?.sender?.address,
+  })
+  let amountPlaceholder: string
+
+  if (
+    !sourceWallet ||
+    !tokenAmount?.token ||
+    !sourceWallet.isConnected ||
+    !isBalanceAvailable ||
+    loadingBalance
+  )
+    amountPlaceholder = 'Amount'
+  else if (balanceData?.value === 0n) amountPlaceholder = 'No balance'
+  else
+    amountPlaceholder = `${Number(balanceData?.formatted).toFixed(3).toString() + ' ' + tokenAmount?.token?.symbol}`
+
+  const requiresErc20SpendApproval =
+    erc20SpendAllowance !== undefined && erc20SpendAllowance < tokenAmount!.amount!
+
+  const direction =
+    sourceChain && destinationChain ? resolveDirection(sourceChain, destinationChain) : undefined
+  const durationEstimate = direction ? getDurationEstimate(direction) : undefined
 
   return (
     <form
       onSubmit={handleSubmit}
-      className="z-20 flex flex-col gap-1 rounded-3xl bg-white p-5 shadow-lg backdrop-blur-sm sm:w-[31.5rem] sm:p-[2.5rem]"
+      className="z-20 flex flex-col gap-1 rounded-3xl bg-white p-5 px-[1.5rem] py-[2rem] shadow-lg backdrop-blur-sm sm:w-[31.5rem] sm:p-[2.5rem]"
     >
       <div className="flex flex-col gap-5">
         {/* Source Chain */}
@@ -73,7 +114,8 @@ const Transfer: FC = () => {
               options={REGISTRY[environment].tokens.map(token => ({ token, amount: null }))}
               floatingLabel="Amount"
               disabled={transferStatus !== 'Idle'}
-              error={errors.tokenAmount?.amount?.message}
+              secondPlaceholder={amountPlaceholder}
+              error={errors.tokenAmount?.amount?.message || tokenAmountError}
               trailing={
                 <Button
                   label="Max"
@@ -85,6 +127,7 @@ const Transfer: FC = () => {
                     !sourceWallet?.isConnected ||
                     !tokenAmount?.token ||
                     !isBalanceAvailable ||
+                    balanceData?.value === 0n ||
                     transferStatus !== 'Idle'
                   }
                 />
@@ -107,7 +150,7 @@ const Transfer: FC = () => {
               placeholder="Destination"
               manualRecipient={manualRecipient}
               onChangeManualRecipient={handleManualRecipientChange}
-              error={manualRecipient.enabled ? errors.manualRecipient?.address?.message : ''}
+              error={manualRecipient.enabled ? manualRecipientError : ''}
               trailing={
                 !manualRecipient.enabled && <WalletButton network={destinationChain?.network} />
               }
@@ -121,13 +164,6 @@ const Transfer: FC = () => {
 
       {destinationChain && (
         <div className="flex flex-col gap-1">
-          {/* Manual input warning */}
-          {manualRecipient.enabled && (
-            <div className="flex items-center gap-1 self-center pt-1">
-              <AlertIcon />
-              <span className="text-xs">Double check address to avoid losing funds.</span>
-            </div>
-          )}
           {/* Switch between Wallet and Manual Input */}
           <Controller
             name="manualRecipient.enabled"
@@ -142,14 +178,60 @@ const Transfer: FC = () => {
               />
             )}
           />
+
+          {/* Manual input warning */}
+          <AnimatePresence>
+            {manualRecipient.enabled && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{
+                  opacity: 1,
+                  height: 'auto',
+                }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.07 }}
+                className="flex items-center gap-1 self-center pt-1"
+              >
+                <AlertIcon />
+                <span className="text-xs">Double check address to avoid losing funds.</span>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       )}
 
+      {/* ERC-20 Spend Approval */}
+      <AnimatePresence>
+        {requiresErc20SpendApproval && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{
+              opacity: 1,
+              height: 'auto',
+            }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.3 }}
+            className="flex items-center gap-1 self-center pt-1"
+          >
+            <TokenSpendApproval
+              onClick={() => approveAllowance(sourceWallet?.sender as Signer)}
+              approving={isApprovingErc20Spend}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Fees */}
-      {isValid && <FeesPreview state={!!fees ? { type: 'Ready', fees } : { type: 'Loading' }} />}
+      <FeesPreview
+        hidden={!isValid || requiresErc20SpendApproval}
+        loading={loadingFees || !fees}
+        fees={fees}
+        durationEstimate={durationEstimate}
+      />
 
       {/* Transfer Button */}
       <Button
+        className="my-5"
         label="Send"
         size="lg"
         variant="primary"
@@ -160,21 +242,12 @@ const Transfer: FC = () => {
           isValidating ||
           !fees ||
           transferStatus !== 'Idle' ||
-          !sourceWallet?.isConnected ||
-          (!manualRecipient.enabled && !destinationWallet?.isConnected)
+          requiresErc20SpendApproval
         }
-        className="my-5"
+        cypressID="form-submit"
       />
 
-      {/* Warning Label */}
-      <div className="self-center text-sm text-turtle-level5">
-        <span>This can take up to 30 minutes. </span>
-        <Link href={'/'}>
-          {/* TODO: update Link */}
-          <span className="underline">Read more</span>
-        </Link>
-      </div>
-
+      <Credits />
       <SubstrateWalletModal />
     </form>
   )

@@ -1,23 +1,15 @@
-'use client'
-
-import Identicon from '@polkadot/react-identicon'
-import * as Snowbridge from '@snowbridge/api'
+import { SnowbridgeStatus } from '@/models/snowbridge'
+import { StoredTransfer } from '@/models/transfer'
+import { resolveDirection } from '@/services/transfer'
+import { formatOngoingTransferDate } from '@/utils/datetime'
+import { formatAmount, getExplorerLink, toHuman } from '@/utils/transfer'
 import Image from 'next/image'
-import { useEffect, useState } from 'react'
-
-import { getContext, getEnvironment } from '@/context/snowbridge'
-import useCompletedTransfers from '@/hooks/useCompletedTransfers'
-import useLookupName from '@/hooks/useLookupName'
-import useOngoingTransfers from '@/hooks/useOngoingTransfers'
-import { Network } from '@/models/chain'
-import { CompletedTransfer, StoredTransfer, TxStatus } from '@/models/transfer'
-import { Direction, resolveDirection } from '@/services/transfer'
-import { truncateAddress } from '@/utils/address'
-import { feeToHuman, formatDate, toHuman } from '@/utils/transfer'
-
+import Account from './Account'
+import { colors } from '../../tailwind.config'
 import OngoingTransfer from './OngoingTransfer'
 import { ArrowRight } from './svg/ArrowRight'
 import { ArrowUpRight } from './svg/ArrowUpRight'
+import TransferEstimate from './TransferEstimate'
 import {
   Dialog,
   DialogContent,
@@ -28,48 +20,30 @@ import {
 } from './ui/dialog'
 import { Separator } from './ui/separator'
 
-import { colors } from '../../tailwind.config'
-
-export const OngoingTransferDialog = ({ transfer }: { transfer: StoredTransfer }) => {
-  const { removeTransfer: removeOngoingTransfer } = useOngoingTransfers()
-  const { addCompletedTransfer } = useCompletedTransfers()
-  const senderName = useLookupName(transfer.sourceChain.network, transfer.sender)
-  const recipientName = useLookupName(transfer.destChain.network, transfer.recipient)
-
-  const [update, setUpdate] = useState<string | null>('Loading...')
-
-  const senderDisplay = senderName ? senderName : truncateAddress(transfer.sender, 4, 4)
-  const recipientDisplay = recipientName ? recipientName : truncateAddress(transfer.recipient, 4, 4)
+export const OngoingTransferDialog = ({
+  transfer,
+  transferStatus = 'Loading...',
+  estimatedTransferDuration,
+}: {
+  transfer: StoredTransfer
+  transferStatus?: string
+  estimatedTransferDuration?: SnowbridgeStatus
+}) => {
   const direction = resolveDirection(transfer.sourceChain, transfer.destChain)
-
-  useEffect(() => {
-    const pollUpdate = async () => {
-      try {
-        if (direction == Direction.ToEthereum) {
-          await trackToEthereum(transfer, setUpdate, removeOngoingTransfer, addCompletedTransfer)
-        } else if (direction == Direction.ToPolkadot) {
-          await trackToPolkadot(transfer, setUpdate, removeOngoingTransfer, addCompletedTransfer)
-        }
-      } catch (error) {
-        console.error('Error fetching data:', error)
-      }
-    }
-
-    pollUpdate()
-  }, [addCompletedTransfer, direction, removeOngoingTransfer, transfer])
+  const explorerLink = getExplorerLink(transfer)
 
   return (
     <Dialog>
       <DialogTrigger className="w-full">
         <OngoingTransfer
           transfer={transfer}
-          update={update}
-          senderDisplay={senderDisplay}
-          recipientDisplay={recipientDisplay}
+          transferStatus={transferStatus}
+          estimatedTransferDuration={estimatedTransferDuration}
+          direction={direction}
         />
       </DialogTrigger>
       <DialogContent
-        className="max-w-[24rem] rounded-4xl sm:max-w-[30.5rem]"
+        className="ongoing-transfer-dialog m-auto max-h-[85vh] max-w-[90vw] overflow-scroll rounded-4xl sm:max-w-[30.5rem]"
         hideCloseButton={true}
       >
         {/* Modal header */}
@@ -89,19 +63,19 @@ export const OngoingTransferDialog = ({ transfer }: { transfer: StoredTransfer }
                   src={transfer.sourceChain.logoURI}
                   alt={`${transfer.sourceChain.name}`}
                   fill={true}
-                  className={'rounded-full border border-turtle-secondary-dark'}
+                  className={'rounded-full border border-turtle-secondary-dark bg-background'}
                 />
               </div>
               <div className="text-sm">{transfer.sourceChain.name}</div>
             </div>
-            <ArrowRight className="h-2 w-2" fill={colors['turtle-secondary-dark']} />
+            <ArrowRight className="h-3 w-3" fill={colors['turtle-secondary-dark']} />
             <div className="turtle-success-dark flex items-center space-x-1">
               <div className="relative h-6 w-6 rounded-full">
                 <Image
                   src={transfer.destChain.logoURI}
                   alt={`${transfer.destChain.name}`}
                   fill={true}
-                  className={'rounded-full border border-turtle-secondary-dark'}
+                  className={'rounded-full border border-turtle-secondary-dark bg-background'}
                 />
               </div>
               <div className="text-sm">{transfer.destChain.name}</div>
@@ -109,14 +83,14 @@ export const OngoingTransferDialog = ({ transfer }: { transfer: StoredTransfer }
           </div>
           <h3
             className={
-              'flex items-center space-x-1 text-3xl font-medium leading-none text-turtle-secondary-dark sm:text-5xl'
+              'xxl-letter-spacing flex items-center space-x-1 text-3xl leading-none text-turtle-secondary-dark sm:text-5xl'
             }
           >
-            <p>{toHuman(transfer.amount, transfer.token).toFixed(3)}</p>
-            <p>{transfer.token.symbol}</p>
+            <span>{formatAmount(toHuman(transfer.amount, transfer.token))}</span>
+            <span>{transfer.token.symbol}</span>
           </h3>
           <div className={'flex items-center space-x-4 text-sm text-turtle-secondary-dark'}>
-            <div>{formatDate(transfer.date)}</div>
+            <div>{formatOngoingTransferDate(transfer.date)}</div>
           </div>
         </DialogHeader>
 
@@ -129,15 +103,18 @@ export const OngoingTransferDialog = ({ transfer }: { transfer: StoredTransfer }
             }
           >
             <div className="my-2 flex items-center justify-between">
-              <p className="font-bold text-turtle-secondary-dark">{update}</p>
-              <p className="text-normal text-turtle-secondary">{formatDate(transfer.date)}</p>
+              <p className="text-left font-bold text-turtle-secondary-dark">{transferStatus}</p>
+              <p className="text-normal text-turtle-secondary">
+                {formatOngoingTransferDate(transfer.date)}
+              </p>
             </div>
-            <div className="mb-2 h-2 rounded-full bg-turtle-secondary-light">
-              <div
-                className="h-2 rounded-full border border-turtle-secondary-dark bg-turtle-secondary"
-                style={{ width: '60%' }}
-              ></div>
-            </div>
+
+            <TransferEstimate
+              transfer={transfer}
+              estimatedTransferDuration={estimatedTransferDuration}
+              direction={direction}
+              outlinedProgressBar={true}
+            />
           </div>
 
           {/* sender */}
@@ -146,219 +123,76 @@ export const OngoingTransferDialog = ({ transfer }: { transfer: StoredTransfer }
               Sender
             </div>
             <div className="p-4 text-sm">
-              <div className="flex items-center gap-x-2">
-                {transfer.sourceChain.network == Network.Polkadot ? (
-                  <Identicon
-                    value={transfer.sender}
-                    size={16}
-                    theme="polkadot"
-                    className={'rounded-full border border-turtle-secondary-dark'}
-                  />
-                ) : (
-                  <div
-                    className={
-                      'h-4 w-4 rounded-full border border-turtle-secondary-dark bg-gradient-to-r from-violet-400 to-purple-300'
-                    }
-                  />
-                )}
-
-                <p className="text-sm">{senderDisplay}</p>
-              </div>
+              <Account network={transfer.sourceChain.network} address={transfer.sender} />
             </div>
-
             <div className="relative border-t p-4 text-sm">
               <div className="absolute -top-2 left-2.5 bg-white px-0.5 text-xs text-turtle-level5">
                 Receiver
               </div>
-              <div className="flex items-center gap-x-2">
-                {transfer.destChain.name === Network.Polkadot ? (
-                  <Identicon
-                    value={transfer.recipient}
-                    size={16}
-                    theme="polkadot"
-                    className={'rounded-full border border-turtle-secondary-dark'}
-                  />
-                ) : (
-                  <div
-                    className={
-                      'h-4 w-4 rounded-full border border-turtle-secondary-dark bg-gradient-to-r from-violet-400 to-purple-300'
-                    }
-                  />
-                )}
-                <p className="text-sm">{recipientDisplay}</p>
-              </div>
+              <Account network={transfer.destChain.network} address={transfer.recipient} />
             </div>
           </div>
 
           {/* fees */}
           <div className="w-full gap-10">
-            <div className="mt-2 flex flex-col items-center justify-between space-x-4 sm:flex-row">
+            <div className="mt-2 flex justify-between space-x-4 px-1 sm:flex-row">
               <p className="text-sm">Transfer amount</p>
               <div className="flex space-x-1 text-sm">
-                <p>{toHuman(transfer.amount, transfer.token).toFixed(3)}</p>
+                <p>{toHuman(transfer.amount, transfer.token)}</p>
                 <p>{transfer.token.symbol}</p>
-                <p className="text-turtle-level5">TBD $</p>
+                {typeof transfer.tokenUSDValue == 'number' && (
+                  <p className="text-turtle-level5">
+                    $
+                    {formatAmount(
+                      toHuman(transfer.amount, transfer.token) * (transfer.tokenUSDValue ?? 0),
+                    )}{' '}
+                  </p>
+                )}
               </div>
             </div>
             <Separator className="my-4 bg-turtle-level3" />
-            <div className="flex flex-col items-center justify-between sm:flex-row">
+            <div className="flex justify-between space-x-4 px-1 sm:flex-row">
               <p className="text-sm">Fees</p>
               <div className="flex space-x-1 text-sm">
-                <p>{feeToHuman(transfer.fees)}</p>
+                <p>{formatAmount(toHuman(transfer.fees.amount, transfer.fees.token))}</p>
                 <p>{transfer.fees.token.symbol}</p>
-                <p className="text-turtle-level5"> TBD $</p>
+                {transfer.fees.inDollars >= 0 && (
+                  <div className="text-turtle-level5">${formatAmount(transfer.fees.inDollars)}</div>
+                )}
               </div>
             </div>
             <Separator className="my-4 bg-turtle-level3" />
-            <div className="flex flex-col items-center justify-between sm:flex-row">
+            <div className="flex justify-between space-x-4 px-1 sm:flex-row">
               <p className="text-sm">Min receive</p>
               <div className="flex space-x-1 text-sm">
-                {/* TODO(nuno) */}
-                <p>{toHuman(transfer.amount, transfer.token).toFixed(3)}</p>
+                <p>{formatAmount(toHuman(transfer.amount, transfer.token))}</p>
                 <p>{transfer.token.symbol}</p>
-                {/* TODO(nuno) */}
-                <p className="text-turtle-level5"> TBD $</p>
+                {typeof transfer.tokenUSDValue == 'number' && (
+                  <p className="text-turtle-level5">
+                    $
+                    {formatAmount(
+                      toHuman(transfer.amount, transfer.token) * (transfer.tokenUSDValue ?? 0),
+                    )}{' '}
+                  </p>
+                )}
               </div>
             </div>
           </div>
-          <a
-            href={'#'}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="View transaction on block explorer"
-            className="flex w-full items-center justify-center space-x-2 rounded-lg border border-turtle-level3 py-1 text-sm hover:text-turtle-level5"
-          >
-            {/* use transaction hash */}
-            <p>View on Block Explorer</p> <ArrowUpRight className="hover:text-turtle-level5" />
-          </a>
+          {explorerLink && (
+            <a
+              href={explorerLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="View transaction on block explorer"
+              className="mb-4 flex w-full items-center justify-center space-x-2 rounded-lg border border-turtle-level3 py-1 text-sm hover:text-turtle-level5 sm:m-0"
+            >
+              <p>View on Block Explorer</p> <ArrowUpRight className="hover:text-turtle-level5" />
+            </a>
+          )}
         </div>
       </DialogContent>
     </Dialog>
   )
-}
-
-const POLL_UPDATE_INTERVAL_MS: number = 10_000
-
-async function trackToPolkadot(
-  transfer: StoredTransfer,
-  setUpdate: (x: string) => void,
-  removeOngoingTransfer: (id: string) => void,
-  addCompletedTransfer: (transfer: CompletedTransfer) => void,
-) {
-  const snowbridgeEnv = getEnvironment(transfer.environment)
-  const context = await getContext(snowbridgeEnv)
-  while (true) {
-    const { status, result } = await Snowbridge.toPolkadot.trackSendProgressPolling(
-      context,
-      transfer.sendResult as Snowbridge.toPolkadot.SendResult,
-    )
-
-    if (status !== 'pending') {
-      setUpdate('Done!')
-      // Adds the new completed tx to storage
-      addCompletedTransfer({
-        id: transfer.id,
-        result: result?.failure ? TxStatus.Failed : TxStatus.Succeeded,
-        // hashes?: string[] TODO handle hashes
-        // errors?: string[] TODO handle errors details
-        token: transfer.token,
-        sourceChain: transfer.sourceChain,
-        destChain: transfer.destChain,
-        amount: transfer.amount,
-        fees: transfer.fees,
-        // minTokenRecieved: transfer.amount, // TODO handle true minTokenRecieved value
-        sender: transfer.sender,
-        recipient: transfer.recipient,
-        date: transfer.date,
-      } satisfies CompletedTransfer)
-
-      // Removes the ongoing tx from storage
-      removeOngoingTransfer(transfer.id)
-      break
-    }
-
-    // Pending, keep track of progress
-    const { success } = result
-
-    if (result.failure || !success || !success.plan.success) {
-      setUpdate('This transfer failed!')
-      break
-    }
-
-    if (!!success.destinationParachain?.events) {
-      setUpdate(`Arriving at ${transfer.destChain.name}..."`)
-    } else if (!!success.bridgeHub.events) {
-      setUpdate('Arriving at BridgeHub...')
-    } else if (!!success.assetHub.events) {
-      setUpdate('Arriving at AssetHub...')
-    } else if (!!success.ethereum.events) {
-      setUpdate('Bridging in progress..')
-    } else {
-      setUpdate('Loading...')
-    }
-  }
-
-  await new Promise(r => setTimeout(r, POLL_UPDATE_INTERVAL_MS))
-}
-
-async function trackToEthereum(
-  transfer: StoredTransfer,
-  setUpdate: (x: string) => void,
-  removeOngoingTransfer: (id: string) => void,
-  addCompletedTransfer: (transfer: any) => void,
-) {
-  const snowbridgeEnv = getEnvironment(transfer.environment)
-  const context = await getContext(snowbridgeEnv)
-  while (true) {
-    const { status, result } = await Snowbridge.toEthereum.trackSendProgressPolling(
-      context,
-      transfer.sendResult as Snowbridge.toEthereum.SendResult,
-    )
-
-    if (status !== 'pending') {
-      //  Adds the new completed tx to storage
-      addCompletedTransfer({
-        id: transfer.id,
-        result: result?.failure ? TxStatus.Failed : TxStatus.Succeeded,
-        // hashes?: string[] TODO handle hashes
-        // errors?: string[] TODO handle errors details
-        token: transfer.token,
-        sourceChain: transfer.sourceChain,
-        destChain: transfer.destChain,
-        amount: transfer.amount,
-        fees: transfer.fees,
-        // minTokenRecieved: transfer.amount,
-        sender: transfer.sender,
-        recipient: transfer.recipient,
-        date: transfer.date,
-      } satisfies CompletedTransfer)
-
-      // Removes the ongoing tx from storage
-      removeOngoingTransfer(transfer.id)
-      break
-    }
-
-    // Pending, keep track of progress
-    const { success } = result
-
-    //TODO(nuno): This shouldn't really happen but we should handle this better
-    if (result.failure || !success || !success.plan.success) {
-      setUpdate('This transfer failed!')
-      break
-    }
-
-    if (!!success.sourceParachain?.events) {
-      setUpdate('Sending...')
-    } else if (!!success.assetHub.events) {
-      setUpdate('Arriving at AssetHub...')
-    } else if (!!success.bridgeHub.events) {
-      setUpdate('Arriving at BridgeHub...')
-    } else {
-      setUpdate('Bridging in progress...')
-    }
-
-    await new Promise(r => setTimeout(r, POLL_UPDATE_INTERVAL_MS))
-  }
 }
 
 export default OngoingTransferDialog

@@ -1,5 +1,4 @@
-import { nativeToken, REGISTRY } from '@/config/registry'
-import { getContext, getEnvironment } from '@/context/snowbridge'
+import { REGISTRY } from '@/config/registry'
 import useEnvironment from '@/hooks/useEnvironment'
 import useErc20Balance from '@/hooks/useErc20Balance'
 import useNotification from '@/hooks/useNotification'
@@ -7,17 +6,15 @@ import useTransfer from '@/hooks/useTransfer'
 import useWallet from '@/hooks/useWallet'
 import { Chain } from '@/models/chain'
 import { NotificationSeverity } from '@/models/notification'
-import { createSchema } from '@/models/schemas'
+import { schema } from '@/models/schemas'
 import { ManualRecipient, TokenAmount } from '@/models/select'
-import { Fees } from '@/models/transfer'
-import { Direction, resolveDirection } from '@/services/transfer'
-import { convertAmount, toHuman } from '@/utils/transfer'
+import { isValidAddressOfNetwork } from '@/utils/address'
+import { safeConvertAmount } from '@/utils/transfer'
 import { zodResolver } from '@hookform/resolvers/zod'
-import * as Sentry from '@sentry/nextjs'
-import * as Snowbridge from '@snowbridge/api'
-import debounce from 'lodash.debounce'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { SubmitHandler, useForm, useWatch } from 'react-hook-form'
+import useFees from './useFees'
+import useSnowbridgeContext from './useSnowbridgeContext'
 
 interface FormInputs {
   sourceChain: Chain | null
@@ -34,9 +31,7 @@ const initValues: FormInputs = {
 }
 
 const useTransferForm = () => {
-  const [maxAmount, setMaxAmount] = useState<number>(Infinity) // used to update the zod schema
-  const [fees, setFees] = useState<Fees | null>(null)
-  const [snowbridgeContext, setSnowbridgeContext] = useState<Snowbridge.Context>()
+  const { snowbridgeContext } = useSnowbridgeContext()
   const { addNotification } = useNotification()
   const { environment } = useEnvironment()
   const { transfer, transferStatus } = useTransfer()
@@ -45,11 +40,10 @@ const useTransferForm = () => {
     control,
     handleSubmit,
     setValue,
-    trigger,
     reset,
-    formState: { errors, isValid, isValidating },
+    formState: { errors, isValid: isValidZodSchema, isValidating },
   } = useForm<FormInputs>({
-    resolver: zodResolver(createSchema(maxAmount)),
+    resolver: zodResolver(schema),
     mode: 'onChange',
     delayError: 3000,
     defaultValues: initValues,
@@ -59,8 +53,14 @@ const useTransferForm = () => {
   const destinationChain = useWatch({ control, name: 'destinationChain' })
   const manualRecipient = useWatch({ control, name: 'manualRecipient' })
   const tokenAmount = useWatch({ control, name: 'tokenAmount' })
+  const { fees, loading: loadingFees } = useFees(
+    sourceChain,
+    destinationChain,
+    tokenAmount?.token ?? null,
+  )
+  const [tokenAmountError, setTokenAmountError] = useState<string>('') // validation on top of zod
+  const [manualRecipientError, setManualRecipientError] = useState<string>('') // validation on top of zod
   const tokenId = tokenAmount?.token?.id
-
   const sourceWallet = useWallet(sourceChain?.network)
   const destinationWallet = useWallet(destinationChain?.network)
 
@@ -80,6 +80,16 @@ const useTransferForm = () => {
     address: balanceParams.address,
     context: balanceParams.context,
   })
+
+  const isFormValid =
+    isValidZodSchema &&
+    !tokenAmountError &&
+    !manualRecipientError &&
+    sourceWallet?.isConnected &&
+    !loadingBalance &&
+    !!balanceData &&
+    (!manualRecipient.enabled || manualRecipient.address.length > 0) &&
+    (manualRecipient.enabled || destinationWallet?.isConnected)
 
   const handleSourceChainChange = useCallback(
     (newValue: Chain | null) => {
@@ -127,8 +137,7 @@ const useTransferForm = () => {
       !sourceWallet?.isConnected ||
       !tokenAmount?.token ||
       balanceData === undefined ||
-      balanceData === null ||
-      maxAmount === Infinity
+      balanceData === null
     )
       return
 
@@ -136,11 +145,11 @@ const useTransferForm = () => {
       'tokenAmount',
       {
         token: tokenAmount.token,
-        amount: maxAmount,
+        amount: Number(balanceData.formatted),
       },
       { shouldValidate: true },
     )
-  }, [sourceWallet?.isConnected, tokenAmount?.token, balanceData, maxAmount, setValue])
+  }, [sourceWallet?.isConnected, tokenAmount?.token, balanceData, setValue])
 
   const onSubmit: SubmitHandler<FormInputs> = useCallback(
     data => {
@@ -148,7 +157,7 @@ const useTransferForm = () => {
       const recipient = manualRecipient.enabled
         ? manualRecipient.address
         : destinationWallet?.sender?.address
-      const amount = tokenAmount ? convertAmount(tokenAmount.amount, tokenAmount.token) : null
+      const amount = tokenAmount ? safeConvertAmount(tokenAmount.amount, tokenAmount.token) : null
 
       if (
         !sourceChain ||
@@ -157,12 +166,14 @@ const useTransferForm = () => {
         !destinationChain ||
         !tokenAmount?.token ||
         !amount ||
-        !fees
+        !fees ||
+        !snowbridgeContext
       )
         return
 
       transfer({
         environment,
+        context: snowbridgeContext,
         sender: sourceWallet.sender,
         sourceChain,
         destinationChain,
@@ -176,99 +187,42 @@ const useTransferForm = () => {
         },
       })
     },
-    [destinationWallet?.sender?.address, fees, reset, sourceWallet?.sender, transfer, environment],
+    [
+      destinationWallet?.sender?.address,
+      fees,
+      reset,
+      sourceWallet?.sender,
+      transfer,
+      environment,
+      snowbridgeContext,
+    ],
   )
 
-  const debouncedTrigger = useCallback(
-    (field: any) => debounce(() => trigger(field), 3000),
-    [trigger],
-  )
-
-  // Fetch fees
+  // validate recipient address
   useEffect(() => {
-    const fetchFees = async () => {
-      if (!isValid) {
-        setFees(null)
-        return
-      }
-      if (
-        !sourceChain ||
-        !destinationChain ||
-        !tokenAmount ||
-        !tokenAmount.token ||
-        !snowbridgeContext
-      )
-        return
+    const isValidAddress =
+      !manualRecipient.enabled ||
+      !destinationChain ||
+      isValidAddressOfNetwork(manualRecipient.address, destinationChain.network) ||
+      manualRecipient.address === ''
 
-      const direction = resolveDirection(sourceChain, destinationChain)
-      const token = nativeToken(sourceChain)
+    if (isValidAddress) setManualRecipientError('')
+    else setManualRecipientError('Invalid Address')
+  }, [manualRecipient.address, destinationChain, sourceChain, manualRecipient.enabled])
 
-      try {
-        switch (direction) {
-          case Direction.ToEthereum: {
-            const amount = (await Snowbridge.toEthereum.getSendFee(snowbridgeContext)).toString()
-            setFees({
-              amount,
-              token,
-              inDollars: 0, // todo: update with actual value
-            })
-            break
-          }
-          case Direction.ToPolkadot: {
-            const amount = (
-              await Snowbridge.toPolkadot.getSendFee(
-                snowbridgeContext,
-                tokenAmount.token.address,
-                destinationChain.chainId,
-                BigInt(0),
-              )
-            ).toString()
-
-            setFees({
-              amount,
-              token,
-              inDollars: 0,
-            })
-            break
-          }
-        }
-      } catch (error) {
-        setFees(null)
-        Sentry.captureException(error)
-        addNotification({
-          severity: NotificationSeverity.Error,
-          message: 'We failed to fetch the fees. Sorry, try again later.',
-          dismissible: true,
-        })
-      }
-    }
-
-    fetchFees()
-  }, [
-    isValid,
-    sourceChain,
-    destinationChain,
-    tokenAmount,
-    environment,
-    snowbridgeContext,
-    addNotification,
-  ])
-
-  // Update max amount
+  // validate token amount
   useEffect(() => {
-    if (loadingBalance || balanceData === undefined || balanceData === null) setMaxAmount(Infinity)
-    else if (tokenAmount?.token) setMaxAmount(toHuman(balanceData.value, tokenAmount.token))
-  }, [balanceData, loadingBalance, tokenAmount?.token, tokenAmount?.token?.decimals])
-
-  // validate recipient address immediately
-  useEffect(() => {
-    trigger('manualRecipient.address')
-  }, [manualRecipient.address, destinationChain, sourceChain, trigger])
-
-  // validate token amount delayed
-  useEffect(() => {
-    debouncedTrigger('tokenAmount.amount')
-  }, [balanceData, maxAmount, debouncedTrigger])
+    if (!tokenAmount?.amount || !sourceWallet?.isConnected) setTokenAmountError('')
+    else if (balanceData && balanceData.value === BigInt(0))
+      setTokenAmountError("That's more than you have in your wallet")
+    else if (
+      tokenAmount?.amount &&
+      balanceData?.value &&
+      tokenAmount.amount > Number(balanceData.formatted)
+    )
+      setTokenAmountError("That's more than you have in your wallet")
+    else setTokenAmountError('')
+  }, [tokenAmount?.amount, balanceData, sourceWallet])
 
   // reset token amount
   useEffect(() => {
@@ -281,21 +235,11 @@ const useTransferForm = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tokenId, setValue])
 
-  useEffect(() => {
-    const fetchContext = async () => {
-      const snowbridgeEnv = getEnvironment(environment)
-      const context = await getContext(snowbridgeEnv)
-      setSnowbridgeContext(context)
-    }
-
-    fetchContext()
-  }, [environment])
-
   return {
     control,
     errors,
-    isValid,
-    isValidating,
+    isValid: isFormValid,
+    isValidating, // Only includes validating zod schema atm
     handleSubmit: handleSubmit(onSubmit),
     handleSourceChainChange,
     handleDestinationChainChange,
@@ -308,9 +252,14 @@ const useTransferForm = () => {
     sourceWallet,
     destinationWallet,
     fees,
+    loadingFees,
     transferStatus,
     environment,
-    isBalanceAvailable: maxAmount !== Infinity && balanceData?.value && balanceData.value > 0,
+    tokenAmountError,
+    manualRecipientError,
+    isBalanceAvailable: balanceData?.value != undefined,
+    loadingBalance,
+    balanceData,
   }
 }
 

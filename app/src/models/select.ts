@@ -1,5 +1,4 @@
 import { ReactNode } from 'react'
-import { Chain } from '@/models/chain'
 import { Token } from '@/models/token'
 
 export interface SelectProps<T> {
@@ -9,6 +8,7 @@ export interface SelectProps<T> {
   floatingLabel?: string
   placeholder?: string
   placeholderIcon?: ReactNode
+  secondPlaceholder?: string
   trailing?: ReactNode
   disabled?: boolean
   error?: string

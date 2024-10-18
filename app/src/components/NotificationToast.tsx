@@ -49,13 +49,15 @@ const NotificationToast: React.FC<NotificationToastProps> = ({
       {renderSeverityIcon(notification.severity)}
 
       {/* Notification Content */}
-      {header && <span className="font-bold text-white">{header}</span>}
-      {notification.message && <span className="text-white">{notification.message}</span>}
+      {header && <span className="sm:text-normal text-xs font-bold text-white">{header}</span>}
+      {notification.message && (
+        <span className="sm:text-normal text-sm text-white">{notification.message}</span>
+      )}
 
       {/* Close Button */}
       {notification.dismissible && (
         <button
-          className="text-white underline"
+          className="sm:text-normal text-xs text-white underline"
           onClick={() => removeNotification(notification.id)}
         >
           Dismiss

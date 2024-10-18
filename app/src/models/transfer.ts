@@ -1,5 +1,5 @@
+import { toEthereum, toPolkadot } from '@snowbridge/api'
 import { Dispatch, SetStateAction } from 'react'
-import * as Snowbridge from '@snowbridge/api'
 
 import { Environment } from '@/store/environmentStore'
 
@@ -10,6 +10,7 @@ export interface StoredTransfer {
   id: string
   sourceChain: Chain
   token: Token
+  tokenUSDValue?: number
   sender: string
   destChain: Chain
   amount: string
@@ -21,13 +22,13 @@ export interface StoredTransfer {
   environment: Environment // to access context
   // TODO(nuno): we can have multiple types of transfer and have this depend on that type.
   // that way we can support different fields, for example for xcm-only transfers in the future.
-  sendResult: Snowbridge.toEthereum.SendResult | Snowbridge.toPolkadot.SendResult
+  sendResult: toEthereum.SendResult | toPolkadot.SendResult
 }
 
 export interface DisplaysTransfers {
-  isNewTransaction: boolean
-  setIsNewTransaction: Dispatch<SetStateAction<boolean>>
-  isCompletedTransactions: boolean
+  newTransferInit: TransferTab
+  setNewTransferInit: Dispatch<SetStateAction<TransferTab>>
+  hasCompletedTransfers: boolean
 }
 
 export enum TxStatus {
@@ -40,19 +41,19 @@ export type TransferResult = TxStatus.Succeeded | TxStatus.Failed
 export type CompletedTransfer = {
   id: string
   result: TransferResult
-  hashes?: string[]
-  errors?: string[]
   token: Token
+  tokenUSDValue?: number
   sourceChain: Chain
   destChain: Chain
   amount: string
-  amountValue?: number
   fees: Fees
   minTokenRecieved?: string
   minTokenRecievedValue?: number
   sender: string
   recipient: string
   date: Date
+  explorerLink?: string
+  errors?: string[]
 }
 export type TransfersByDate = Record<string, CompletedTransfer[]>
 export interface Fees {
@@ -63,3 +64,9 @@ export interface Fees {
   /* the value in dollars */
   inDollars: number
 }
+
+export enum TransferTab {
+  New = 'New',
+  Completed = 'Completed',
+}
+export type TransferTabOptions = TransferTab

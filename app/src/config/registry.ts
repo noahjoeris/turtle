@@ -1,8 +1,9 @@
+/* eslint-disable @typescript-eslint/no-namespace */
 import { Chain, Network } from '@/models/chain'
 import { Token } from '@/models/token'
 
 /* Mainnet :: Polkadot - Ethereum */
-export module Mainnet {
+export namespace Mainnet {
   export const Ethereum: Chain = {
     uid: 'ethereum',
     name: 'Ethereum',
@@ -53,7 +54,7 @@ export module Mainnet {
     symbol: 'SHIB',
     logoURI: 'https://s2.coinmarketcap.com/static/img/coins/64x64/5994.png',
     decimals: 18,
-    address: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599',
+    address: '0x95ad61b0a150d79219dcf64e1e6cc01f0b64c4ce',
   }
 
   export const PEPE: Token = {
@@ -68,10 +69,10 @@ export module Mainnet {
   export const TON: Token = {
     id: 'ton',
     name: 'Toncoin',
-    symbol: 'TOIN',
+    symbol: 'TON',
     logoURI: 'https://s2.coinmarketcap.com/static/img/coins/64x64/11419.png',
     decimals: 9,
-    address: '0x6982508145454Ce325dDbE47a25d4ec3d2311933',
+    address: '0x582d872a1b094fc48f5de31d3b73f2d9be47def1',
   }
 
   export const WSTETH: Token = {
@@ -90,6 +91,33 @@ export module Mainnet {
     logoURI: 'https://s2.coinmarketcap.com/static/img/coins/64x64/5776.png',
     decimals: 18,
     address: '0x18084fbA666a33d37592fA2633fD49a74DD93a88',
+  }
+
+  export const USDT: Token = {
+    id: 'usdt',
+    name: 'Tether',
+    symbol: 'USDT',
+    logoURI: 'https://s2.coinmarketcap.com/static/img/coins/64x64/825.png',
+    decimals: 6,
+    address: '0xdac17f958d2ee523a2206206994597c13d831ec7',
+  }
+
+  export const USDC: Token = {
+    id: 'usdc',
+    name: 'USDC',
+    symbol: 'USDC',
+    logoURI: 'https://s2.coinmarketcap.com/static/img/coins/64x64/3408.png',
+    decimals: 6,
+    address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+  }
+
+  export const DAI: Token = {
+    id: 'dai',
+    name: 'DAI',
+    symbol: 'DAI',
+    logoURI: 'https://s2.coinmarketcap.com/static/img/coins/64x64/4943.png',
+    decimals: 18,
+    address: '0x6b175474e89094c44da98b954eedeac495271d0f',
   }
 
   export const DOT: Token = {
@@ -112,7 +140,7 @@ export module Mainnet {
 }
 
 /* Testnet :: Rococo - Sepolia */
-export module Testnet {
+export namespace Testnet {
   /* Mainnet :: Polkadot - Ethereum */
   export const Sepolia: Chain = {
     uid: 'sepolia',
@@ -174,11 +202,14 @@ export const REGISTRY = {
     tokens: [
       Mainnet.WETH,
       Mainnet.WBTC,
-      Mainnet.SHIB,
-      Mainnet.PEPE,
-      Mainnet.TON,
+      Mainnet.USDC,
+      Mainnet.USDT,
+      Mainnet.DAI,
       Mainnet.WSTETH,
       Mainnet.TBTC,
+      Mainnet.TON,
+      Mainnet.SHIB,
+      Mainnet.PEPE,
     ],
   },
   testnet: {
@@ -187,7 +218,7 @@ export const REGISTRY = {
   },
 }
 
-export function nativeToken(chain: Chain): Token {
+export function getNativeToken(chain: Chain): Token {
   switch (chain.uid) {
     case 'rococo-assethub':
       return Testnet.ROC

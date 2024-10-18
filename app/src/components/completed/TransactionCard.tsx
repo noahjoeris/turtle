@@ -1,15 +1,11 @@
-'use client'
 import Image from 'next/image'
-import { useEnsName } from 'wagmi'
-import Identicon from '@polkadot/react-identicon'
 
 import { TxStatus, CompletedTransfer, TransferResult } from '@/models/transfer'
-import { Network } from '@/models/chain'
-import { truncateAddress } from '@/utils/address'
 import { cn } from '@/utils/cn'
 import { formatHours } from '@/utils/datetime'
-import { toHuman } from '@/utils/transfer'
+import { formatAmount, toHuman } from '@/utils/transfer'
 
+import Account from '../Account'
 import { ArrowRight } from '../svg/ArrowRight'
 import { Fail } from '../svg/Fail'
 import { Success } from '../svg/Success'
@@ -25,36 +21,29 @@ const statusIcon = (status: TransferResult) => {
   }
 }
 
-export const TransactionCard = ({
-  tx,
-  senderDisplay,
-  recipientDisplay,
-}: {
-  tx: CompletedTransfer
-  senderDisplay: string
-  recipientDisplay: string
-}) => {
+export const TransactionCard = ({ tx }: { tx: CompletedTransfer }) => {
+  const transferSucceeded = tx.result === TxStatus.Succeeded
   return (
     <div
       className={cn(
         'flex items-center rounded-2xl border p-4 hover:cursor-pointer sm:gap-4',
-        tx.result === TxStatus.Succeeded
+        transferSucceeded
           ? 'border-turtle-level3  hover:bg-turtle-level1'
           : 'border-turtle-error  hover:border-turtle-error-dark',
       )}
     >
       <div className="w-full space-y-2 ">
-        <div className="flex items-center justify-center sm:justify-between">
+        <div className="flex items-center justify-between">
           <div className="flex max-w-xs space-x-2 overflow-x-auto">
             <div>{statusIcon(tx.result)}</div>
             <div
               className={cn(
-                'flex items-center space-x-1 text-xl font-medium leading-none',
+                'no-letter-spacing flex items-center space-x-1 text-xl leading-none',
                 tx.result === TxStatus.Failed && 'text-turtle-error',
               )}
             >
-              <p>{toHuman(tx.amount, tx.token).toFixed(3)}</p>
-              <p>{tx.token.symbol}</p>
+              <span>{formatAmount(toHuman(tx.amount, tx.token))}</span>
+              <span>{tx.token.symbol}</span>
             </div>
             <div
               className={cn(
@@ -68,8 +57,8 @@ export const TransactionCard = ({
                   alt={`${tx.sourceChain.name}`}
                   fill={true}
                   className={cn(
-                    'rounded-full border',
-                    tx.result === TxStatus.Succeeded ? 'border-black' : 'border-turtle-error',
+                    'rounded-full border bg-background',
+                    transferSucceeded ? 'border-black' : 'border-turtle-error',
                   )}
                 />
               </div>
@@ -83,8 +72,8 @@ export const TransactionCard = ({
                   alt={`${tx.destChain.name}`}
                   fill={true}
                   className={cn(
-                    'rounded-full border',
-                    tx.result === TxStatus.Succeeded ? 'border-black' : 'border-turtle-error',
+                    'rounded-full border bg-background',
+                    transferSucceeded ? 'border-black' : 'border-turtle-error',
                   )}
                 />
               </div>
@@ -92,8 +81,8 @@ export const TransactionCard = ({
           </div>
           <div
             className={cn(
-              'hidden text-sm sm:block',
-              tx.result === TxStatus.Succeeded ? 'text-turtle-level5' : 'text-turtle-error',
+              'text-[10px] sm:block sm:text-sm',
+              transferSucceeded ? 'text-turtle-level5' : 'text-turtle-error',
             )}
           >
             {formatHours(tx.date)}
@@ -101,60 +90,30 @@ export const TransactionCard = ({
         </div>
         <div
           className={cn(
-            'flex items-center justify-center space-x-4 sm:justify-start',
+            'flex items-center justify-start space-x-4',
             tx.result === TxStatus.Failed && 'text-turtle-error-dark',
           )}
         >
-          <div className="flex items-center gap-x-1">
-            {tx.sourceChain.network === Network.Polkadot ? (
-              <Identicon
-                value={tx.sender}
-                size={14}
-                theme="polkadot"
-                className={cn(
-                  'rounded-full border',
-                  tx.result === TxStatus.Succeeded ? 'border-black' : 'border-turtle-error-dark',
-                )}
-              />
-            ) : (
-              <div
-                className={cn(
-                  'h-4 w-4 rounded-full border bg-gradient-to-r from-violet-400 to-purple-300',
-                  tx.result === TxStatus.Succeeded ? 'border-black ' : 'border-turtle-error-dark',
-                )}
-              />
-            )}
-            <p className="text-sm">{senderDisplay}</p>
-          </div>
+          <Account
+            network={tx.sourceChain.network}
+            address={tx.sender}
+            className={transferSucceeded ? 'border-black' : 'border-turtle-error-dark'}
+            allowCopy={false}
+          />
           <ArrowRight
             className="h-3 w-3"
-            {...(tx.result === TxStatus.Succeeded
+            {...(transferSucceeded
               ? { fill: colors['turtle-foreground'] }
               : { fill: colors['turtle-secondary-dark'] })}
           />
-          <div className="flex items-center gap-x-2">
-            {tx.destChain.network === Network.Polkadot ? (
-              <Identicon
-                value={tx.recipient}
-                size={14}
-                theme="polkadot"
-                className={cn(
-                  'rounded-full border',
-                  tx.result === TxStatus.Succeeded ? 'border-black' : 'border-turtle-error-dark',
-                )}
-              />
-            ) : (
-              <div
-                className={cn(
-                  'h-4 w-4 rounded-full border bg-gradient-to-r from-violet-400 to-purple-300',
-                  tx.result === TxStatus.Succeeded ? 'border-black ' : 'border-turtle-error-dark',
-                )}
-              />
-            )}
-            <p className="text-sm">{recipientDisplay}</p>
-          </div>
+          <Account
+            network={tx.destChain.network}
+            address={tx.recipient}
+            className={transferSucceeded ? 'border-black' : 'border-turtle-error-dark'}
+            allowCopy={false}
+          />
         </div>
-        {tx.result === TxStatus.Failed && (
+        {!transferSucceeded && (
           <p className="flex items-center justify-between rounded-lg bg-turtle-error/10 p-2 text-xs font-normal leading-3 text-turtle-error-dark">
             This transaction failed.{' '}
             <span className="text-xs font-normal leading-3 underline hover:text-turtle-error">

@@ -5,6 +5,7 @@ import { Network } from '@/models/chain'
 import { motion } from 'framer-motion'
 import React from 'react'
 import Button from './Button'
+import { cn } from '@/utils/cn'
 
 interface WalletButtonProps {
   /** The network to connect to. */
@@ -16,7 +17,7 @@ interface WalletButtonProps {
 /**
  * Wallet button component that is intended to support connecting to various different networks.
  */
-const WalletButton: React.FC<WalletButtonProps> = ({ network, className }) => {
+const WalletButton = ({ network, className }: WalletButtonProps) => {
   const {
     disconnect: disconnectEvm,
     isConnected: evmIsConnected,
@@ -38,7 +39,7 @@ const WalletButton: React.FC<WalletButtonProps> = ({ network, className }) => {
         }
       case Network.Ethereum:
         return {
-          buttonFunction: evmIsConnected ? disconnectEvm : openEvm,
+          buttonFunction: evmIsConnected ? disconnectEvm : () => openEvm(),
           isConnected: evmIsConnected,
           disabled: false,
         }
@@ -58,13 +59,14 @@ const WalletButton: React.FC<WalletButtonProps> = ({ network, className }) => {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
+      data-cy="connect-button"
     >
       <Button
         label={isConnected ? 'Disconnect' : 'Connect'}
         variant={isConnected ? 'outline' : 'primary'}
         disabled={disabled}
         size="sm"
-        className={`${isConnected ? '' : 'w-[4.875rem]'} text-sm`}
+        className={cn('text-sm', isConnected ? '' : 'w-[4.875rem]')}
         onClick={buttonFunction}
       />
     </motion.div>

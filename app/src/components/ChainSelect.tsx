@@ -1,17 +1,21 @@
 'use client'
+import Image from 'next/image'
+import { forwardRef, useRef, useState } from 'react'
+import { twMerge } from 'tailwind-merge'
+
+import useLookupName from '@/hooks/useLookupName'
+import { useEnsAvatar } from 'wagmi'
+import { normalize } from 'viem/ens'
 import { useOutsideClick } from '@/hooks/useOutsideClick'
 import { Chain } from '@/models/chain'
 import { ManualRecipient, SelectProps } from '@/models/select'
-import Image from 'next/image'
-import { forwardRef, useEffect, useRef, useState } from 'react'
-import { twMerge } from 'tailwind-merge'
+import { truncateAddress } from '@/utils/address'
+
 import Dropdown from './Dropdown'
 import ChainIcon from './svg/ChainIcon'
 import ChevronDown from './svg/ChevronDown'
 import { Tooltip } from './Tooltip'
 import VerticalDivider from './VerticalDivider'
-import { truncateAddress } from '@/utils/address'
-import { lookupName } from '@/utils/transfer'
 
 interface ChainSelectProps extends SelectProps<Chain> {
   walletAddress?: string
@@ -39,12 +43,16 @@ const ChainSelect = forwardRef<HTMLDivElement, ChainSelectProps>(
     ref,
   ) => {
     const [isOpen, setIsOpen] = useState(false)
-    const [accountName, setAccountName] = useState('')
-
     const triggerRef = useRef<HTMLDivElement>(null)
     const dropdownRef = useRef<HTMLDivElement>(null)
-
     useOutsideClick(triggerRef, dropdownRef, () => setIsOpen(false))
+    const addressLookup = useLookupName(value?.network, walletAddress?.toLowerCase())
+
+    const addressPlaceholder = walletAddress ? truncateAddress(walletAddress, 4, 4) : ''
+    const accountName = addressLookup ? addressLookup : addressPlaceholder
+    const { data: ensAvatarUrl } = useEnsAvatar({
+      name: normalize(addressLookup || '') || undefined,
+    })
 
     const handleSelectionChange = (selectedChain: Chain) => {
       onChange(selectedChain)
@@ -64,23 +72,8 @@ const ChainSelect = forwardRef<HTMLDivElement, ChainSelectProps>(
       (!walletAddress && (!manualRecipient?.enabled || !manualRecipient?.address)) ||
       (manualRecipient?.enabled && !manualRecipient.address)
 
-    useEffect(() => {
-      const fetchNames = async () => {
-        let placeholder = walletAddress ? truncateAddress(walletAddress, 4, 4) : ''
-        if (!value) return
-
-        setAccountName(
-          !!walletAddress
-            ? (await lookupName(value?.network, walletAddress)) ?? placeholder
-            : placeholder,
-        )
-      }
-
-      fetchNames()
-    })
-
     return (
-      <div ref={ref} className={twMerge('relative w-full', className)}>
+      <div ref={ref} className={twMerge('relative w-full', className)} data-cy="chain-select">
         {floatingLabel && (
           <label className="absolute -top-2 left-3 z-30 origin-top-left bg-background px-1 text-xs text-turtle-level5">
             {floatingLabel}
@@ -90,10 +83,11 @@ const ChainSelect = forwardRef<HTMLDivElement, ChainSelectProps>(
           <div
             ref={triggerRef}
             className={twMerge(
-              'flex items-center justify-between rounded-md border-1 border-turtle-level3 bg-background px-3 text-sm',
+              'flex cursor-pointer items-center justify-between rounded-md border-1 border-turtle-level3 bg-background px-3 text-sm ',
               disabled && 'opacity-30',
               error && 'border-turtle-error',
             )}
+            data-cy="chain-select-trigger"
             onClick={handleTriggerClick}
           >
             <div className="flex h-[3.5rem] flex-grow items-center gap-1">
@@ -104,9 +98,13 @@ const ChainSelect = forwardRef<HTMLDivElement, ChainSelectProps>(
                     alt={value.name}
                     width={24}
                     height={24}
-                    className="h-[1.5rem] w-[1.5rem] rounded-full border-1 border-turtle-foreground"
+                    className="h-[1.5rem] w-[1.5rem] rounded-full border-1 border-turtle-foreground bg-background"
                   />
-                  {shouldShowChainName && <span className="text-nowrap">{value.name}</span>}
+                  {shouldShowChainName && (
+                    <span className="text-nowrap" data-cy="chain-select-value">
+                      {value.name}
+                    </span>
+                  )}
                 </>
               ) : (
                 <>
@@ -114,9 +112,17 @@ const ChainSelect = forwardRef<HTMLDivElement, ChainSelectProps>(
                   {placeholder}
                 </>
               )}
-
-              <ChevronDown strokeWidth={0.2} className="ml-1" />
-              {!manualRecipient?.enabled && accountName}
+              <ChevronDown strokeWidth={0.2} height={6} width={14} className="ml-1 mr-1" />
+              {ensAvatarUrl && (
+                <Image
+                  src={ensAvatarUrl}
+                  alt="ENS Avatar"
+                  width={24}
+                  height={24}
+                  className="h-[1.5rem] w-[1.5rem] rounded-full border-1 border-turtle-foreground bg-background"
+                />
+              )}
+              {!manualRecipient?.enabled && !!value && accountName}
               {manualRecipient && manualRecipient.enabled && (
                 <>
                   <VerticalDivider className={!manualRecipient.address ? 'visible' : 'invisible'} />
@@ -124,14 +130,16 @@ const ChainSelect = forwardRef<HTMLDivElement, ChainSelectProps>(
                     type="text"
                     className="h-[70%] w-full bg-transparent focus:border-0 focus:outline-none"
                     placeholder="Address"
+                    autoFocus
                     value={manualRecipient.address}
                     onChange={handleManualRecipientChange}
                     onClick={e => e.stopPropagation()}
+                    data-cy="manual-recipient-input"
                   />
                 </>
               )}
             </div>
-            {trailing && <div className="ml-2">{trailing}</div>}
+            {trailing && <div className="absolute right-0 ml-2 mr-3">{trailing}</div>}
           </div>
         </Tooltip>
 
@@ -147,7 +155,8 @@ const ChainSelect = forwardRef<HTMLDivElement, ChainSelectProps>(
                 alt={option.name}
                 width={24}
                 height={24}
-                className="h-[1.5rem] w-[1.5rem] rounded-full border-1 border-turtle-foreground"
+                priority
+                className="h-[1.5rem] w-[1.5rem] rounded-full border-1 border-turtle-foreground bg-background"
               />
               <span className="text-sm">{option.name}</span>
             </li>
